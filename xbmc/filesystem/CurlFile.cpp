@@ -322,11 +322,13 @@ CCurlFile::CCurlFile()
   m_bufferSize = 32768;
   m_binary = true;
   m_postdata = "";
+  m_postdataset = false;
   m_username = "";
   m_password = "";
   m_httpauth = "";
   m_state = new CReadState();
   m_skipshout = false;
+  m_httpresponse = -1;
 }
 
 //Has to be called before Open()
@@ -423,8 +425,8 @@ void CCurlFile::SetCommonOptions(CReadState* state)
   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_URL, m_url.c_str());
   g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_TRANSFERTEXT, FALSE);
 
-  // setup POST data if it exists
-  if (!m_postdata.IsEmpty())
+  // setup POST data if it is set (and it may be empty)
+  if (m_postdataset)
   {
     g_curlInterface.easy_setopt(h, CURLOPT_POST, 1 );
     g_curlInterface.easy_setopt(h, CURLOPT_POSTFIELDSIZE, m_postdata.length());
@@ -652,7 +654,10 @@ void CCurlFile::ParseAndCorrectUrl(CURL &url2)
   else if( strProtocol.Equals("http")
        ||  strProtocol.Equals("https"))
   {
-    if (g_guiSettings.GetBool("network.usehttpproxy") && m_proxy.IsEmpty())
+    if (g_guiSettings.GetBool("network.usehttpproxy")
+        && !g_guiSettings.GetString("network.httpproxyserver").empty()
+        && !g_guiSettings.GetString("network.httpproxyport").empty()
+        && m_proxy.IsEmpty())
     {
       m_proxy = "http://" + g_guiSettings.GetString("network.httpproxyserver");
       m_proxy += ":" + g_guiSettings.GetString("network.httpproxyport");
@@ -738,6 +743,7 @@ bool CCurlFile::Get(const CStdString& strURL, CStdString& strHTML)
 bool CCurlFile::Service(const CStdString& strURL, const CStdString& strPostData, CStdString& strHTML)
 {
   m_postdata = strPostData;
+  m_postdataset = true;
   if (Open(strURL))
   {
     if (ReadData(strHTML))
@@ -837,8 +843,8 @@ bool CCurlFile::Open(const CURL& url)
   SetCommonOptions(m_state);
   SetRequestHeaders(m_state);
 
-  long response = m_state->Connect(m_bufferSize);
-  if( response < 0 || response >= 400)
+  m_httpresponse = m_state->Connect(m_bufferSize);
+  if( m_httpresponse < 0 || m_httpresponse >= 400)
     return false;
 
   SetCorrectHeaders(m_state);

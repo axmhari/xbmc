@@ -493,7 +493,7 @@ void CMusicInfoTag::SetReplayGainTrackGain(int trackGain)
 
 void CMusicInfoTag::SetReplayGainAlbumGain(int albumGain)
 {
-  m_iTrackGain = albumGain;
+  m_iAlbumGain = albumGain;
   m_iHasGainInfo |= REPLAY_GAIN_HAS_ALBUM_INFO;
 }
 
@@ -514,6 +514,7 @@ void CMusicInfoTag::SetAlbum(const CAlbum& album)
   SetArtist(album.artist);
   SetAlbumId(album.idAlbum);
   SetAlbum(album.strAlbum);
+  SetTitle(album.strAlbum);
   SetAlbumArtist(album.artist);
   SetGenre(album.genre);
   SetRating('0' + album.iRating);
@@ -521,6 +522,7 @@ void CMusicInfoTag::SetAlbum(const CAlbum& album)
   SYSTEMTIME stTime;
   stTime.wYear = album.iYear;
   SetReleaseDate(stTime);
+  m_iTimesPlayed = album.iTimesPlayed;
   m_iDbId = album.idAlbum;
   m_type = "album";
   m_bLoaded = true;
@@ -555,7 +557,7 @@ void CMusicInfoTag::SetSong(const CSong& song)
   m_iAlbumId = song.iAlbumId;
 }
 
-void CMusicInfoTag::Serialize(CVariant& value)
+void CMusicInfoTag::Serialize(CVariant& value) const
 {
   value["url"] = m_strURL;
   value["title"] = m_strTitle;

@@ -30,6 +30,8 @@
 #include "linux/XMemUtils.h"
 #include "DVDDemuxers/DVDDemuxUtils.h"
 #include "settings/AdvancedSettings.h"
+#include "xbmc/guilib/GraphicContext.h"
+#include "settings/Settings.h"
 
 #include <sys/time.h>
 #include <inttypes.h>
@@ -126,6 +128,21 @@ bool COMXVideo::SendDecoderConfig()
   return true;
 }
 
+bool COMXVideo::NaluFormatStartCodes(enum CodecID codec, uint8_t *in_extradata, int in_extrasize)
+{
+  switch(codec)
+  {
+    case CODEC_ID_H264:
+      if (in_extrasize < 7 || in_extradata == NULL)
+        return true;
+      // valid avcC atom data always starts with the value 1 (version), otherwise annexb
+      else if ( *in_extradata != 1 )
+        return true;
+    default: break;
+  }
+  return false;    
+}
+
 bool COMXVideo::Open(CDVDStreamInfo &hints, OMXClock *clock, bool deinterlace, bool hdmi_clock_sync)
 {
   if(m_is_open)
@@ -145,27 +162,15 @@ bool COMXVideo::Open(CDVDStreamInfo &hints, OMXClock *clock, bool deinterlace, b
   if(!m_decoded_width || !m_decoded_height)
     return false;
 
+  if(hints.extrasize > 0 && hints.extradata != NULL)
+  {
+    m_extrasize = hints.extrasize;
+    m_extradata = (uint8_t *)malloc(m_extrasize);
+    memcpy(m_extradata, hints.extradata, hints.extrasize);
+  }
+
   m_converter     = new CBitstreamConverter();
   m_video_convert = m_converter->Open(hints.codec, (uint8_t *)hints.extradata, hints.extrasize, false);
-
-  if(m_video_convert)
-  {
-    if(m_converter->GetExtraData() != NULL && m_converter->GetExtraSize() > 0)
-    {
-      m_extrasize = m_converter->GetExtraSize();
-      m_extradata = (uint8_t *)malloc(m_extrasize);
-      memcpy(m_extradata, m_converter->GetExtraData(), m_converter->GetExtraSize());
-    }
-  }
-  else
-  {
-    if(hints.extrasize > 0 && hints.extradata != NULL)
-    {
-      m_extrasize = hints.extrasize;
-      m_extradata = (uint8_t *)malloc(m_extrasize);
-      memcpy(m_extradata, hints.extradata, hints.extrasize);
-    }
-  }
 
   switch (hints.codec)
   {
@@ -207,11 +212,10 @@ bool COMXVideo::Open(CDVDStreamInfo &hints, OMXClock *clock, bool deinterlace, b
       }
 
       /* check interlaced */
-      uint8_t *extradata = (uint8_t *)hints.extradata;
-      if(hints.extrasize > 9 && extradata[0] == 1)
+      if(m_extrasize > 9 && m_extradata[0] == 1)
       {
         int32_t  max_ref_frames = 0;
-        uint8_t  *spc = extradata + 6;
+        uint8_t  *spc = m_extradata + 6;
         uint32_t sps_size = BS_RB16(spc);
         bool     interlaced = true;
         if (sps_size)
@@ -414,6 +418,21 @@ bool COMXVideo::Open(CDVDStreamInfo &hints, OMXClock *clock, bool deinterlace, b
   {
     CLog::Log(LOGERROR, "COMXVideo::Open error OMX_IndexParamBrcmVideoDecodeErrorConcealment omx_err(0x%08x)\n", omx_err);
     return false;
+  }
+
+  if(NaluFormatStartCodes(hints.codec, m_extradata, m_extrasize))
+  {
+    OMX_NALSTREAMFORMATTYPE nalStreamFormat;
+    OMX_INIT_STRUCTURE(nalStreamFormat);
+    nalStreamFormat.nPortIndex = m_omx_decoder.GetInputPort();
+    nalStreamFormat.eNaluFormat = OMX_NaluFormatStartCodes;
+
+    omx_err = m_omx_decoder.SetParameter((OMX_INDEXTYPE)OMX_IndexParamNalStreamFormatSelect, &nalStreamFormat);
+    if (omx_err != OMX_ErrorNone)
+    {
+      CLog::Log(LOGERROR, "COMXVideo::Open OMX_IndexParamNalStreamFormatSelect error (0%08x)\n", omx_err);
+      return false;
+    }
   }
 
   if(m_hdmi_clock_sync)
@@ -875,8 +894,12 @@ void COMXVideo::SetVideoRect(const CRect& SrcRect, const CRect& DestRect)
   OMX_CONFIG_DISPLAYREGIONTYPE configDisplay;
   OMX_INIT_STRUCTURE(configDisplay);
   configDisplay.nPortIndex = m_omx_render.GetInputPort();
+  RESOLUTION res = g_graphicsContext.GetVideoResolution();
+  // DestRect is in GUI coordinates, rather than display coordinates, so we have to scale
+  float xscale = (float)g_settings.m_ResInfo[res].iScreenWidth  / (float)g_settings.m_ResInfo[res].iWidth;
+  float yscale = (float)g_settings.m_ResInfo[res].iScreenHeight / (float)g_settings.m_ResInfo[res].iHeight;
   float sx1 = SrcRect.x1, sy1 = SrcRect.y1, sx2 = SrcRect.x2, sy2 = SrcRect.y2;
-  float dx1 = DestRect.x1, dy1 = DestRect.y1, dx2 = DestRect.x2, dy2 = DestRect.y2;
+  float dx1 = DestRect.x1*xscale, dy1 = DestRect.y1*yscale, dx2 = DestRect.x2*xscale, dy2 = DestRect.y2*yscale;
   float sw = SrcRect.Width() / DestRect.Width();
   float sh = SrcRect.Height() / DestRect.Height();
 
@@ -943,12 +966,15 @@ void COMXVideo::WaitCompletion()
     return;
   }
 
-  unsigned int nTimeOut = 5000;
+  unsigned int nTimeOut = 30000;
 
   while(nTimeOut)
   {
     if(m_omx_render.IsEOS())
+    {
+      CLog::Log(LOGDEBUG, "%s::%s - got eos\n", CLASSNAME, __func__);
       break;
+    }
 
     if(nTimeOut == 0)
     {

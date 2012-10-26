@@ -39,6 +39,7 @@
 #include "utils/StringUtils.h"
 #include "threads/Atomics.h"
 #include "windows/GUIWindowPVRCommon.h"
+#include "utils/JobManager.h"
 
 #include "PVRManager.h"
 #include "PVRDatabase.h"
@@ -50,6 +51,7 @@
 #include "epg/EpgContainer.h"
 #include "recordings/PVRRecordings.h"
 #include "timers/PVRTimers.h"
+#include "interfaces/AnnouncementManager.h"
 
 using namespace std;
 using namespace MUSIC_INFO;
@@ -124,8 +126,28 @@ void CPVRManager::ResetProperties(void)
   }
 }
 
-void CPVRManager::Start(void)
+class CPVRManagerStartJob : public CJob
 {
+public:
+  CPVRManagerStartJob(void) {}
+  ~CPVRManagerStartJob(void) {}
+
+  bool DoWork(void)
+  {
+    g_PVRManager.Start(false);
+    return true;
+  }
+};
+
+void CPVRManager::Start(bool bAsync /* = false */)
+{
+  if (bAsync)
+  {
+    CPVRManagerStartJob *job = new CPVRManagerStartJob;
+    CJobManager::GetInstance().AddJob(job, NULL);
+    return;
+  }
+
   CSingleLock lock(m_critSection);
 
   /* first stop and remove any clients */
@@ -157,7 +179,7 @@ void CPVRManager::Stop(void)
   SetState(ManagerStateStopping);
 
   /* stop the EPG updater, since it might be using the pvr add-ons */
-  g_EpgContainer.Unload();
+  g_EpgContainer.Stop();
 
   CLog::Log(LOGNOTICE, "PVRManager - stopping");
 
@@ -534,17 +556,9 @@ void CPVRManager::ResetEPG(void)
 {
   CLog::Log(LOGNOTICE,"PVRManager - %s - clearing the EPG database", __FUNCTION__);
 
-  StopUpdateThreads();
-  g_EpgContainer.Stop();
+  Stop();
   g_EpgContainer.Reset();
-
-  if (g_guiSettings.GetBool("pvrmanager.enabled"))
-  {
-    static_cast<CPVRChannelGroupInternal *>(m_channelGroups->GetGroupAllTV().get())->CreateChannelEpgs(true);
-    static_cast<CPVRChannelGroupInternal *>(m_channelGroups->GetGroupAllRadio().get())->CreateChannelEpgs(true);
-    g_EpgContainer.Start();
-    StartUpdateThreads();
-  }
+  Start();
 }
 
 bool CPVRManager::IsPlaying(void) const
@@ -888,47 +902,6 @@ bool CPVRManager::UpdateItem(CFileItem& item)
   return false;
 }
 
-
-bool CPVRManager::UpdateCurrentLastPlayedPosition(int lastplayedposition)
-{
-  // Only anything but recordings we fake success
-  if (!IsPlayingRecording())
-    return true;
-
-  bool rc = false;
-  CPVRRecording currentRecording;
-
-  if (m_addons)
-  {
-    PVR_ERROR error;
-    rc = m_addons->GetPlayingRecording(currentRecording) && m_addons->SetRecordingLastPlayedPosition(currentRecording, lastplayedposition, &error);
-  }
-  return rc;
-}
-
-bool CPVRManager::SetRecordingLastPlayedPosition(const CPVRRecording &recording, int lastplayedposition)
-{
-  bool rc = false;
-
-  if (m_addons)
-  {
-    PVR_ERROR error;
-    rc = m_addons->SetRecordingLastPlayedPosition(recording, lastplayedposition, &error);
-  }
-  return rc;
-}
-
-int CPVRManager::GetRecordingLastPlayedPosition(const CPVRRecording &recording)
-{
-  int rc = 0;
-
-  if (m_addons)
-  {
-    rc = m_addons->GetRecordingLastPlayedPosition(recording);
-  }
-  return rc;
-}
-
 bool CPVRManager::StartPlayback(const CPVRChannel *channel, bool bPreview /* = false */)
 {
   g_settings.m_bStartVideoWindowed = bPreview;
@@ -972,6 +945,13 @@ bool CPVRManager::PerformChannelSwitch(const CPVRChannel &channel, bool bPreview
     SaveCurrentChannelSettings();
   }
 
+  if (!bPreview && m_currentFile)
+  {
+    CVariant data(CVariant::VariantTypeObject);
+    data["end"] = true;
+    ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::Player, "xbmc", "OnStop", CFileItemPtr(new CFileItem(*m_currentFile)), data);
+  }
+
   SAFE_DELETE(m_currentFile);
 
   lock.Leave();
@@ -1004,6 +984,14 @@ bool CPVRManager::PerformChannelSwitch(const CPVRChannel &channel, bool bPreview
     CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error,
         g_localizeStrings.Get(19166), // PVR information
         g_localizeStrings.Get(19035)); // This channel cannot be played. Check the log for details.
+  }
+
+  if (!bPreview && bSwitched)
+  {
+    CVariant param;
+    param["player"]["speed"] = 1;
+    param["player"]["playerid"] = g_playlistPlayer.GetCurrentPlaylist();
+    ANNOUNCEMENT::CAnnouncementManager::Announce(ANNOUNCEMENT::Player, "xbmc", "OnPlay", CFileItemPtr(new CFileItem(channel)), param);
   }
 
   return bSwitched;

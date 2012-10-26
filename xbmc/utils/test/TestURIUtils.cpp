@@ -209,7 +209,7 @@ TEST_F(TestURIUtils, IsDOSPath)
 TEST_F(TestURIUtils, IsDVD)
 {
   EXPECT_TRUE(URIUtils::IsDVD("dvd://path/in/video_ts.ifo"));
-#if defined(_WIN32)
+#if defined(TARGET_WINDOWS)
   EXPECT_TRUE(URIUtils::IsDVD("dvd://path/in/file"));
 #else
   EXPECT_TRUE(URIUtils::IsDVD("iso9660://path/in/video_ts.ifo"));
@@ -490,4 +490,63 @@ TEST_F(TestURIUtils, ProtocolHasEncodedFilename)
   EXPECT_TRUE(URIUtils::ProtocolHasEncodedFilename("lastfm"));
   EXPECT_TRUE(URIUtils::ProtocolHasEncodedFilename("rss"));
   EXPECT_TRUE(URIUtils::ProtocolHasEncodedFilename("davs"));
+}
+
+TEST_F(TestURIUtils, GetRealPath)
+{
+  std::string ref;
+  
+  ref = "/path/to/file/";
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath(ref).c_str());
+  
+  ref = "path/to/file";
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("../path/to/file").c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("./path/to/file").c_str());
+
+  ref = "/path/to/file";
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath(ref).c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("/path/to/./file").c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("/./path/to/./file").c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("/path/to/some/../file").c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("/../path/to/some/../file").c_str());
+
+  ref = "/path/to";
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("/path/to/some/../file/..").c_str());
+
+#ifdef TARGET_WINDOWS
+  ref = "\\\\path\\to\\file\\";
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath(ref).c_str());
+  
+  ref = "path\\to\\file";
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("..\\path\\to\\file").c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath(".\\path\\to\\file").c_str());
+
+  ref = "\\\\path\\to\\file";
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath(ref).c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("\\\\path\\to\\.\\file").c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("\\\\.\\path/to\\.\\file").c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("\\\\path\\to\\some\\..\\file").c_str());
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("\\\\..\\path\\to\\some\\..\\file").c_str());
+
+  ref = "\\\\path\\to";
+  EXPECT_STREQ(ref.c_str(), URIUtils::GetRealPath("\\\\path\\to\\some\\..\\file\\..").c_str());
+#endif
+
+  // test rar/zip paths
+  ref = "rar://%2fpath%2fto%2frar/subpath/to/file";
+  EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath(ref).c_str());
+  
+  // test rar/zip paths
+  ref = "rar://%2fpath%2fto%2frar/subpath/to/file";
+  EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath("rar://%2fpath%2fto%2frar/../subpath/to/file").c_str());
+  EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath("rar://%2fpath%2fto%2frar/./subpath/to/file").c_str());
+  EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath("rar://%2fpath%2fto%2frar/subpath/to/./file").c_str());
+  EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath("rar://%2fpath%2fto%2frar/subpath/to/some/../file").c_str());
+  
+  EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath("rar://%2fpath%2fto%2f.%2frar/subpath/to/file").c_str());
+  EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath("rar://%2fpath%2fto%2fsome%2f..%2frar/subpath/to/file").c_str());
+
+  // test rar/zip path in rar/zip path
+  ref ="zip://rar%3A%2F%2F%252Fpath%252Fto%252Frar%2Fpath%2Fto%2Fzip/subpath/to/file";
+  EXPECT_STRCASEEQ(ref.c_str(), URIUtils::GetRealPath("zip://rar%3A%2F%2F%252Fpath%252Fto%252Fsome%252F..%252Frar%2Fpath%2Fto%2Fsome%2F..%2Fzip/subpath/to/some/../file").c_str());
 }
