@@ -122,6 +122,21 @@ static void frac_add(AVFrac *f, int64_t incr)
     f->num = num;
 }
 
+/**
+ * Wrap a given time stamp, if there is an indication for an overflow
+ *
+ * @param st stream
+ * @param timestamp the time stamp to wrap
+ * @return resulting time stamp
+ */
+static int64_t wrap_timestamp(AVStream *st, int64_t timestamp)
+{
+    if (st->first_dts != AV_NOPTS_VALUE && timestamp != AV_NOPTS_VALUE &&
+        timestamp < st->first_dts - 60*st->time_base.den)
+        return timestamp + (1LL<<st->pts_wrap_bits);
+    return timestamp;
+}
+
 /** head of registered input format linked list */
 static AVInputFormat *first_iformat = NULL;
 /** head of registered output format linked list */
@@ -798,6 +813,8 @@ int av_read_packet(AVFormatContext *s, AVPacket *pkt)
         }
 
         st= s->streams[pkt->stream_index];
+        pkt->dts = wrap_timestamp(st, pkt->dts);
+        pkt->pts = wrap_timestamp(st, pkt->pts);
 
         switch(st->codec->codec_type){
         case AVMEDIA_TYPE_VIDEO:
@@ -1550,6 +1567,7 @@ int ff_add_index_entry(AVIndexEntry **index_entries,
 int av_add_index_entry(AVStream *st,
                        int64_t pos, int64_t timestamp, int size, int distance, int flags)
 {
+    timestamp = wrap_timestamp(st, timestamp);
     return ff_add_index_entry(&st->index_entries, &st->nb_index_entries,
                               &st->index_entries_allocated_size, pos,
                               timestamp, size, distance, flags);
@@ -1594,6 +1612,12 @@ int av_index_search_timestamp(AVStream *st, int64_t wanted_timestamp,
 {
     return ff_index_search_timestamp(st->index_entries, st->nb_index_entries,
                                      wanted_timestamp, flags);
+}
+
+static int64_t ff_read_timestamp(AVFormatContext *s, int stream_index, int64_t *ppos, int64_t pos_limit,
+        int64_t (*read_timestamp)(struct AVFormatContext *, int , int64_t *, int64_t ))
+{
+    return wrap_timestamp(s->streams[stream_index], read_timestamp(s, stream_index, ppos, pos_limit));
 }
 
 #if FF_API_SEEK_PUBLIC
@@ -1689,7 +1713,7 @@ int64_t ff_gen_search(AVFormatContext *s, int stream_index, int64_t target_ts,
 
     if(ts_min == AV_NOPTS_VALUE){
         pos_min = s->data_offset;
-        ts_min = read_timestamp(s, stream_index, &pos_min, INT64_MAX);
+        ts_min = ff_read_timestamp(s, stream_index, &pos_min, INT64_MAX, read_timestamp);
         if (ts_min == AV_NOPTS_VALUE)
             return -1;
     }
@@ -1705,7 +1729,7 @@ int64_t ff_gen_search(AVFormatContext *s, int stream_index, int64_t target_ts,
         pos_max = filesize - 1;
         do{
             pos_max -= step;
-            ts_max = read_timestamp(s, stream_index, &pos_max, pos_max + step);
+            ts_max = ff_read_timestamp(s, stream_index, &pos_max, pos_max + step, read_timestamp);
             step += step;
         }while(ts_max == AV_NOPTS_VALUE && pos_max >= step);
         if (ts_max == AV_NOPTS_VALUE)
@@ -1713,7 +1737,7 @@ int64_t ff_gen_search(AVFormatContext *s, int stream_index, int64_t target_ts,
 
         for(;;){
             int64_t tmp_pos= pos_max + 1;
-            int64_t tmp_ts= read_timestamp(s, stream_index, &tmp_pos, INT64_MAX);
+            int64_t tmp_ts= ff_read_timestamp(s, stream_index, &tmp_pos, INT64_MAX, read_timestamp);
             if(tmp_ts == AV_NOPTS_VALUE)
                 break;
             ts_max= tmp_ts;
@@ -1760,7 +1784,7 @@ int64_t ff_gen_search(AVFormatContext *s, int stream_index, int64_t target_ts,
             pos= pos_limit;
         start_pos= pos;
 
-        ts = read_timestamp(s, stream_index, &pos, INT64_MAX); //may pass pos_limit instead of -1
+        ts = ff_read_timestamp(s, stream_index, &pos, INT64_MAX, read_timestamp); //may pass pos_limit instead of -1
         if(pos == pos_max)
             no_change++;
         else
@@ -1788,9 +1812,9 @@ int64_t ff_gen_search(AVFormatContext *s, int stream_index, int64_t target_ts,
     ts  = (flags & AVSEEK_FLAG_BACKWARD) ?  ts_min :  ts_max;
 #if 0
     pos_min = pos;
-    ts_min = read_timestamp(s, stream_index, &pos_min, INT64_MAX);
+    ts_min = av_read_timestamp(s, stream_index, &pos_min, INT64_MAX, read_timestamp);
     pos_min++;
-    ts_max = read_timestamp(s, stream_index, &pos_min, INT64_MAX);
+    ts_max = av_read_timestamp(s, stream_index, &pos_min, INT64_MAX, read_timestamp);
     av_dlog(s, "pos=0x%"PRIx64" %"PRId64"<=%"PRId64"<=%"PRId64"\n",
             pos, ts_min, target_ts, ts_max);
 #endif
@@ -2097,7 +2121,7 @@ static void av_estimate_timings_from_pts2(AVFormatContext *ic, int64_t old_offse
         st = ic->streams[i];
 
         pos = 0;
-        ts = ic->iformat->read_timestamp(ic, i, &pos, DURATION_MAX_READ_SIZE);
+        ts = ff_read_timestamp(ic, i, &pos, DURATION_MAX_READ_SIZE, ic->iformat->read_timestamp);
         if (ts == AV_NOPTS_VALUE)
             continue;
         if (st->start_time > ts || st->start_time == AV_NOPTS_VALUE)
@@ -2106,7 +2130,7 @@ static void av_estimate_timings_from_pts2(AVFormatContext *ic, int64_t old_offse
         pos = url_fsize(ic->pb) - 1;
         do {
             pos -= step;
-            ts = ic->iformat->read_timestamp(ic, i, &pos, pos + step);
+            ts = ff_read_timestamp(ic, i, &pos, pos + step, ic->iformat->read_timestamp);
             step += step;
         } while (ts == AV_NOPTS_VALUE && pos >= step && step < DURATION_MAX_READ_SIZE);
 
