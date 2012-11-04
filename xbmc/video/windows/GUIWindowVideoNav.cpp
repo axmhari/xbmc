@@ -394,6 +394,11 @@ bool CGUIWindowVideoNav::GetDirectory(const CStdString &strDirectory, CFileItemL
 
 void CGUIWindowVideoNav::LoadVideoInfo(CFileItemList &items)
 {
+    LoadVideoInfo(items, m_database);
+}
+
+void CGUIWindowVideoNav::LoadVideoInfo(CFileItemList &items, CVideoDatabase &database)
+{
   // TODO: this could possibly be threaded as per the music info loading,
   //       we could also cache the info
   if (!items.GetContent().IsEmpty() && !items.IsPlugin())
@@ -403,7 +408,7 @@ void CGUIWindowVideoNav::LoadVideoInfo(CFileItemList &items)
   // determine content only if it isn't set
   if (content.IsEmpty())
   {
-    content = m_database.GetContentForPath(items.GetPath());
+    content = database.GetContentForPath(items.GetPath());
     items.SetContent(content.IsEmpty() ? "files" : content);
   }
 
@@ -427,7 +432,7 @@ void CGUIWindowVideoNav::LoadVideoInfo(CFileItemList &items)
   bool fetchedPlayCounts = false;
   if (!content.IsEmpty())
   {
-    m_database.GetItemsForPath(content, items.GetPath(), dbItems);
+    database.GetItemsForPath(content, items.GetPath(), dbItems);
     dbItems.SetFastLookup(true);
   }
 
@@ -463,7 +468,7 @@ void CGUIWindowVideoNav::LoadVideoInfo(CFileItemList &items)
                 This code can be removed once the content tables are always filled */
       if (!pItem->m_bIsFolder && !fetchedPlayCounts)
       {
-        m_database.GetPlayCounts(items.GetPath(), items);
+        database.GetPlayCounts(items.GetPath(), items);
         fetchedPlayCounts = true;
       }
       
