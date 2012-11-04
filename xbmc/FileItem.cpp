@@ -2919,6 +2919,9 @@ CStdString CFileItem::GetMovieName(bool bUseFolderNames /* = false */) const
   if (IsLabelPreformated())
     return GetLabel();
 
+  if (m_pvrRecordingInfoTag)
+      return m_pvrRecordingInfoTag->m_strTitle;
+
   CStdString strMovieName = GetBaseMoviePath(bUseFolderNames);
 
   if (URIUtils::IsStack(strMovieName))
