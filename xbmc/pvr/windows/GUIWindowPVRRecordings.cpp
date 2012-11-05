@@ -32,7 +32,7 @@
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "threads/SingleLock.h"
-#include "video/VideoDatabase.h"
+#include "video/windows/GUIWindowVideoNav.h"
 
 using namespace PVR;
 
@@ -416,8 +416,15 @@ void CGUIWindowPVRRecordings::AfterUpdate(CFileItemList& items)
 
     if (!files.IsEmpty())
     {
+      if(!m_database.Open())
+      {
+        return;
+      }
+
       files.SetPath(items.GetPath());
+      CGUIWindowVideoNav::LoadVideoInfo(items, m_database);
       m_thumbLoader.Load(files);
+      m_database.Close();
     }
   }
 }
