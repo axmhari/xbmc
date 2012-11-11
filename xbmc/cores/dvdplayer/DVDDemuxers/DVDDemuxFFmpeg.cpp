@@ -845,6 +845,8 @@ bool CDVDDemuxFFmpeg::SeekTime(int time, bool backwords, double *startpts)
   int ret;
   {
     CSingleLock lock(m_critSection);
+    for (int i=0; i<m_pFormatContext->nb_streams; i++)
+      CLog::Log(LOGINFO, "** Stream %d: wrap ref %lld", i, m_pFormatContext->streams[i]->pts_wrap_reference);
     ret = m_dllAvFormat.av_seek_frame(m_pFormatContext, -1, seek_pts, backwords ? AVSEEK_FLAG_BACKWARD : 0);
 
     if(ret >= 0)

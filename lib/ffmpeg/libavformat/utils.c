@@ -131,8 +131,8 @@ static void frac_add(AVFrac *f, int64_t incr)
  */
 static int64_t wrap_timestamp(AVStream *st, int64_t timestamp)
 {
-    if (st->first_dts != AV_NOPTS_VALUE && timestamp != AV_NOPTS_VALUE &&
-        timestamp < st->first_dts - 60*st->time_base.den)
+    if (st->pts_wrap_bits != 64 && st->pts_wrap_reference != AV_NOPTS_VALUE &&
+        timestamp != AV_NOPTS_VALUE && timestamp < st->pts_wrap_reference)
         return timestamp + (1LL<<st->pts_wrap_bits);
     return timestamp;
 }
@@ -992,6 +992,45 @@ static void update_initial_timestamps(AVFormatContext *s, int stream_index,
     }
     if (st->start_time == AV_NOPTS_VALUE)
         st->start_time = pts;
+
+    if (st->pts_wrap_reference == AV_NOPTS_VALUE) {
+        int i;
+
+        // reference time stamp should be 60 s before first time stamp
+        int64_t pts_wrap_reference = st->first_dts - av_rescale(60, st->time_base.den, st->time_base.num);
+        AVProgram *first_program = av_find_program_from_stream(s, NULL, stream_index);
+        if (!first_program) {
+            int default_stream_index = av_find_default_stream_index(s);
+            if (s->streams[default_stream_index]->pts_wrap_reference == AV_NOPTS_VALUE) {
+                for (i=0; i<s->nb_streams; i++)
+                    s->streams[i]->pts_wrap_reference = pts_wrap_reference;
+            }
+            else
+                st->pts_wrap_reference = s->streams[default_stream_index]->pts_wrap_reference;
+        }
+        else {
+            AVProgram *program = first_program;
+            while (program) {
+                if (program->pts_wrap_reference != AV_NOPTS_VALUE) {
+                    pts_wrap_reference = program->pts_wrap_reference;
+                    break;
+                }
+                program = av_find_program_from_stream(s, program, stream_index);
+            }
+
+            // update every program with differing pts_wrap_reference
+            program = first_program;
+            while(program) {
+                if (program->pts_wrap_reference != pts_wrap_reference)
+                {
+                    for (i=0; i<program->nb_stream_indexes; i++)
+                        s->streams[program->stream_index[i]]->pts_wrap_reference = pts_wrap_reference;
+                    program->pts_wrap_reference = pts_wrap_reference;
+                }
+                program = av_find_program_from_stream(s, program, stream_index);
+            }
+        }
+    }
 }
 
 static void update_initial_durations(AVFormatContext *s, AVStream *st, AVPacket *pkt)
@@ -3016,6 +3055,7 @@ AVStream *avformat_new_stream(AVFormatContext *s, AVCodec *c)
     st->cur_dts = 0;
     st->first_dts = AV_NOPTS_VALUE;
     st->probe_packets = MAX_PROBE_PACKETS;
+    st->pts_wrap_reference = AV_NOPTS_VALUE;
 
     /* default pts setting is MPEG-like */
     avpriv_set_pts_info(st, 33, 1, 90000);
@@ -3049,6 +3089,7 @@ AVProgram *av_new_program(AVFormatContext *ac, int id)
         program->discard = AVDISCARD_NONE;
     }
     program->id = id;
+    program->pts_wrap_reference = AV_NOPTS_VALUE;
 
     return program;
 }

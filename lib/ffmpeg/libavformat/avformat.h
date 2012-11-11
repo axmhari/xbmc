@@ -857,6 +857,11 @@ typedef struct AVStream {
 
     int pts_wrap_bits; /**< number of bits in pts (used for wrapping control) */
 #endif
+
+    /**
+     * internal data to check for wrapping of the time stamp
+     */
+    int64_t pts_wrap_reference;
 } AVStream;
 
 #define AV_PROGRAM_RUNNING 1
@@ -878,6 +883,8 @@ typedef struct AVProgram {
     int program_num;
     int pmt_pid;
     int pcr_pid;
+
+    int64_t pts_wrap_reference;    ///< reference dts for wrap detection
 } AVProgram;
 
 #define AVFMTCTX_NOHEADER      0x0001 /**< signal that no header is present
