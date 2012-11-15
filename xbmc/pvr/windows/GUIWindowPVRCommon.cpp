@@ -190,6 +190,7 @@ bool CGUIWindowPVRCommon::OnMessageFocus(CGUIMessage &message)
 void CGUIWindowPVRCommon::OnWindowUnload(void)
 {
   m_iSelected = m_parent->m_viewControl.GetSelectedItem();
+  m_history = m_parent->m_history;
 }
 
 bool CGUIWindowPVRCommon::OnAction(const CAction &action)
@@ -868,4 +869,16 @@ bool CGUIWindowPVRCommon::OnContextButtonFind(CFileItem *item, CONTEXT_BUTTON bu
   }
 
   return bReturn;
+}
+
+void CGUIWindowPVRCommon::PrepareListUpdate(void)
+{
+  /* FIXME: display a temporary entry so that the list can keep its focus */
+  static CFileItemList busy_items;
+  if (busy_items.IsEmpty())
+  {
+    CFileItemPtr pItem(new CFileItem(g_localizeStrings.Get(194)));
+    busy_items.AddFront(pItem, 0);
+  }
+  m_parent->m_viewControl.SetItems(busy_items);
 }
