@@ -439,11 +439,11 @@ void CGUIWindowPVRRecordings::AfterUpdate(CFileItemList& items)
 
             files.SetPath(strDirectory);
             files.SetContent(StringUtils::EmptyString);
-            CGUIWindowVideoNav::LoadVideoInfo(files, m_database);
+            CGUIWindowVideoNav::LoadVideoInfo(files, m_database, false);
           }
         }
         else
-          CGUIWindowVideoNav::LoadVideoInfo(files, m_database);
+          CGUIWindowVideoNav::LoadVideoInfo(files, m_database, false);
         m_database.Close();
       }
       m_thumbLoader.Load(files);
