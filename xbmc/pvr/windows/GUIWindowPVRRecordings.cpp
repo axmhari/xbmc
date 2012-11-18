@@ -446,10 +446,10 @@ void CGUIWindowPVRRecordings::AfterUpdate(CFileItemList& items)
           }
 
           for (DirectoryMapIter it = directory_map.begin(); it != directory_map.end(); it++)
-            CGUIWindowVideoNav::LoadVideoInfo(*it->second, m_database);
+            CGUIWindowVideoNav::LoadVideoInfo(*it->second, m_database, false);
         }
         else
-          CGUIWindowVideoNav::LoadVideoInfo(files, m_database);
+          CGUIWindowVideoNav::LoadVideoInfo(files, m_database, false);
         m_database.Close();
       }
       m_thumbLoader.Load(files);
