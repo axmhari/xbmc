@@ -425,7 +425,25 @@ void CGUIWindowPVRRecordings::AfterUpdate(CFileItemList& items)
       files.SetPath(items.GetPath());
       if(m_database.Open())
       {
-        CGUIWindowVideoNav::LoadVideoInfo(files, m_database);
+        if (g_PVRRecordings->HasAllRecordingsPathExtension(files.GetPath()))
+        {
+          // Get content for all subdirectories and update matching files, clear the content each time
+          // as LoadVideoInfo returns, if any content is already set.
+          std::list<CStdString> directories;
+          for (int i = 0; i < files.Size(); i++)
+          {
+            CStdString strDirectory = URIUtils::GetDirectory(files[i]->GetPath());
+            if (std::find(directories.begin(), directories.end(), strDirectory) != directories.end())
+              continue;
+            directories.push_back(strDirectory);
+
+            files.SetPath(strDirectory);
+            files.SetContent(StringUtils::EmptyString);
+            CGUIWindowVideoNav::LoadVideoInfo(files, m_database);
+          }
+        }
+        else
+          CGUIWindowVideoNav::LoadVideoInfo(files, m_database);
         m_database.Close();
       }
       m_thumbLoader.Load(files);
